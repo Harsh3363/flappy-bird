@@ -16,10 +16,10 @@ PIPE_IMG = pygame.transform.scale2x(pygame.image.load(os.path.join("img", "pipe.
 BASE_IMG = pygame.transform.scale2x(pygame.image.load(os.path.join("img", "base.png")))
 BG_IMG = pygame.transform.scale2x(pygame.image.load(os.path.join("img", "bg.png")))
 
-
 STAT_FONT = pygame.font.SysFont("comicsans", 50)
 END_FONT = pygame.font.SysFont("comicsans", 70)
 DRAW_LINES = False
+
 
 class Bird:
     IMGS = BIRD_IMGS
@@ -132,7 +132,7 @@ class Pipe:
     # some part inside the box taking extra space then the box or bird so when that extra area collide we don't want
     # collision to be taken as so what mask does is it takes the makes the 2-D array of the pixels in the image and
     # see if the pixels are colliding or not if so then only collision is considered else not=>
-    def collide(self, bird,win):
+    def collide(self, bird, win):
         """
                returns if a point is colliding with the pipe
                :param bird: Bird object
@@ -192,8 +192,8 @@ def draw_window(win, bird, pipes, base, score):
     for pipe in pipes:
         pipe.draw(win)
 
-    text = STAT_FONT.render("Score: "+ str(score),1,(255,255,255))
-    win.blit(text,(WIN_WIDTH -10 - text.get_width(),10))
+    text = STAT_FONT.render("Score: " + str(score), 1, (255, 255, 255))
+    win.blit(text, (WIN_WIDTH - 10 - text.get_width(), 10))
 
     base.draw(win)
 
@@ -202,8 +202,20 @@ def draw_window(win, bird, pipes, base, score):
     pygame.display.update()
 
 
-def main():
-    bird = Bird(230, 350)
+# adding genoms and config is a must as the props when we are using NEAT =>
+# the genoms are the neural network that is going to control the birds =>
+def main(genomes, config):
+    nets = []
+    ge=[]
+    birds = []
+
+    for g in genomes:
+        net = neat.nn.FeedForwardNetwork(g,config)
+        nets.append(net)
+        birds.append(Bird(230,350))
+        g.fitness = 0
+        ge.append(g)
+
     base = Base(730)
     pipes = [Pipe(700)]
     win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
@@ -218,29 +230,70 @@ def main():
         add_pipe = False
         rem = []
         for pipe in pipes:
-            # if pipe.collide(bird):
-            #     pass
+            for x,bird in enumerate(birds):
+                if pipe.collide(bird):
+                    ge[x].fitness -= 1
+                    birds.pop(x)
+                    nets.pop(x)
+                    ge.pop(x)
+
+                if not pipe.passed and pipe.x < bird.x:
+                    pipe.passed = True
+                    add_pipe = True
             if pipe.x + pipe.PIPE_TOP.get_width() < 0:
                 rem.append(pipe)
-            if not pipe.passed and pipe.x < bird.x:
-                pipe.passed = True
-                add_pipe = True
             pipe.move()
 
         if add_pipe:
             score += 1
+            for g in ge:
+                g.fitness+=5
             pipes.append(Pipe(600))
 
         for r in rem:
             pipes.remove(r)
 
-        if bird.y + bird.img.get_height() >= 730:
-            pass
+        for x,bird in enumerate(birds):
+            if bird.y + bird.img.get_height() >= 730:
+                birds.pop(x)
+                nets.pop(x)
+                ge.pop(x)
 
         base.move()
-        draw_window(win, bird, pipes, base,score)
+        draw_window(win, bird, pipes, base, score)
     pygame.quit()
     quit()
 
 
 main()
+
+
+#  SETTING NEAT BELOW =>
+def run(config_file):
+    """
+       runs the NEAT algorithm to train a neural network to play flappy bird.
+       :param config_file: location of config file
+       :return: None
+       """
+    config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
+                                neat.DefaultSpeciesSet, neat.DefaultStagnation,
+                                config_file)
+    # Create the population, which is the top-level object for a NEAT run.
+    p = neat.Population(config)
+
+    # Add a stdout reporter to show progress in the terminal.
+    p.add_reporter(neat.StdOutReporter(True))
+    stats = neat.StatisticsReporter()
+    p.add_reporter(stats)
+    # p.add_reporter(neat.Checkpointer(5))
+    # Run for up to 50 generations.
+    winner = p.run(main, 50)
+
+
+# below lines of code is something what NEAT recommends to do =>
+if __name__ == "__main":
+    # below line of code gives us the path to the directory we currently are inside =>
+    local_dir = os.path.dirname(__file__)
+    # joining directory to the configuration file =>
+    config_path = os.path.join(local_dir, "config-feedforward.txt")
+    run(config_path)
